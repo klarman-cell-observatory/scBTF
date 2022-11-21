@@ -40,8 +40,11 @@ class SingleCellTensor:
             sample_label: str,
             celltype_label: str,
             normalize: bool = False,
+            scale_to: int = 1e6,
             cell_types: list[str] = None,
             enrich_db_genes_only: bool = False,
+            custom_gene_set: list[str] = None,
+            filter_gene_count: int = 10,
             enrich_dbs: list[str] = ['GO_Biological_Process_2021']  # ,'KEGG_2021_Human', 'Reactome_2022']
     ):
         """
@@ -63,6 +66,12 @@ class SingleCellTensor:
             go_genes = set.union(
                 *[set(g for gset in SingleCellTensor.parse_gmt(db).values() for g in gset) for db in enrich_dbs])
             adata = adata[:, adata.var_names.isin(go_genes)].copy()
+        
+        if custom_gene_set is not None:
+            adata = adata[:, adata.var_names.isin(custom_gene_set)].copy()
+            
+        if filter_gene_count is not None:
+            adata = adata[:, adata.X.sum(axis=0) > filter_gene_count].copy()
 
         adpb = ADPBulk(adata, [sample_label, celltype_label])
         pseudobulk_matrix = adpb.fit_transform()
@@ -70,7 +79,7 @@ class SingleCellTensor:
 
         if normalize:
             row_sums = pseudobulk_matrix.sum(axis=1)
-            pseudobulk_matrix = pseudobulk_matrix / row_sums[:, np.newaxis] * 1e6
+            pseudobulk_matrix = pseudobulk_matrix / row_sums[:, np.newaxis] * scale_to
 
         tensor_sample_list = sample_meta[sample_label].unique()
         tensor_celltype_list = [ctype for ctype in sample_meta[celltype_label].unique()]
@@ -86,7 +95,7 @@ class SingleCellTensor:
                 key = (tensor_sample_list[i], tensor_celltype_list[j])
                 if key in sample_meta_dict:
                     tensor[i, j, :] = pseudobulk_matrix.loc[sample_meta_dict[key], tensor_gene_list]
-
+            
         sample_features = SingleCellTensor.adata_obs_to_summary_df(adata, sample_label=sample_label)
 
         return SingleCellTensor(tensor,
