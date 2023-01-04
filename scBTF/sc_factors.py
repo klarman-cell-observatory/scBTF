@@ -1,6 +1,7 @@
 import pickle
 import scipy
 import torch
+import rich
 
 import torch.nn as nn
 import numpy as np
@@ -212,7 +213,6 @@ class FactorizationSet:
                 self.all_gene_consensus_matrix[rank] = self.gene_consensus_matrix(rank=rank)
 
         fig, axs = plt.subplots(2, 5, figsize=(15, 6))
-        ranks = self.factorizations.keys()
         for ax, rank in zip(axs.flatten(), self.factorizations.keys()):
             self.consensus_plot(1 - self.all_gene_consensus_matrix[rank], size=3, ax=ax)
             ax.set_title(f'Rank = {rank}', fontsize=10)
@@ -521,6 +521,14 @@ class FactorizationSet:
         with open(path, 'wb') as file:
             pickle.dump(self, file)
         print(f"Saved SingleCellTensor object to path {path}")
+
+    def __repr__(
+            self,
+    ):
+        rich.print(f"Single cell factorization object with the following params:"
+                   f"\n\tTensor size {' x '.join([str(i) for i in self.sc_tensor.tensor.shape])}"
+                   f"\n\tRanks: {list(self.get_ranks())}")
+        return ""
 
     @staticmethod
     def load(path: str):
