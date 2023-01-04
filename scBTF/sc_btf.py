@@ -25,7 +25,7 @@ class SingleCellBTF:
             initial_lr: float = 1,
             init_alpha: int = 1e2,
             fixed_mode: int = None,
-            fixed_value = None,
+            fixed_value=None,
             lr_decay_gamma: float = 1e-3,
             plot_var_explained: bool = True
     ) -> FactorizationSet:
@@ -36,7 +36,7 @@ class SingleCellBTF:
 
         tensor = torch.from_numpy(sc_tensor.tensor)
         # weights_init, factors_init = initialize_cp(tensor, non_negative=True, init='random', rank=10)
-        
+
         factorization_set = FactorizationSet(sc_tensor=sc_tensor)
 
         rank = [rank] if type(rank) == int else rank
@@ -44,7 +44,8 @@ class SingleCellBTF:
             print(f"Decomposing tensor of shape {tensor.shape} into rank {current_rank} matrices")
 
             for i in trange(n_restarts):
-                bayesianCP = BayesianCP(dims=tensor.shape, rank=current_rank, init_alpha=init_alpha, model=model, fixed_mode=fixed_mode, fixed_value=fixed_value)
+                bayesianCP = BayesianCP(dims=tensor.shape, rank=current_rank, init_alpha=init_alpha, model=model,
+                                        fixed_mode=fixed_mode, fixed_value=fixed_value)
                 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
                 bayesianCP.to(device)
                 tic = time.time()
@@ -52,12 +53,12 @@ class SingleCellBTF:
                     tensor,
                     num_steps=num_steps,
                     initial_lr=initial_lr,
-                    lr_decay_gamma=lr_decay_gamma, 
+                    lr_decay_gamma=lr_decay_gamma,
                     progress_bar=False
                 )
                 time_taken = time.time() - tic
                 factorization_set.add_precis_factorization(current_rank, i, bayesianCP.precis(tensor))
-                params = {'num_steps': num_steps, 'initial_lr': initial_lr, 'init_alpha': init_alpha, 
+                params = {'num_steps': num_steps, 'initial_lr': initial_lr, 'init_alpha': init_alpha,
                           'lr_decay_gamma': lr_decay_gamma, 'time_taken': time_taken}
                 factorization_set.add_factorization_params(current_rank, i, params)
 
@@ -80,7 +81,7 @@ class SingleCellBTF:
             n_restarts: int = 10,
             init: str = 'random',
             num_steps: int = 500,
-            sparsity_coefficients = None,
+            sparsity_coefficients=None,
             plot_var_explained: bool = True
     ) -> FactorizationSet:
         """ Run CP HALS on the tensor """
@@ -99,18 +100,18 @@ class SingleCellBTF:
             for i in trange(n_restarts):
                 tic = time.time()
                 hals_factors, errors_hals = non_negative_parafac_hals(
-                    tensor, 
-                    rank=current_rank, 
-                    init=init, 
-                    n_iter_max=num_steps, 
-                    sparsity_coefficients=sparsity_coefficients, 
+                    tensor,
+                    rank=current_rank,
+                    init=init,
+                    n_iter_max=num_steps,
+                    sparsity_coefficients=sparsity_coefficients,
                     return_errors=True
                 )
                 time_taken = time.time() - tic
-                
+
                 fc = Factorization(*[{'mean': torch.from_numpy(hals_factors[1][i])} for i in range(3)])
                 factorization_set.add_factorization(current_rank, i, fc)
-                
+
                 params = {'num_steps': num_steps, 'time_taken': time_taken, 'losses': errors_hals}
                 factorization_set.add_factorization_params(current_rank, i, params)
 
@@ -125,5 +126,3 @@ class SingleCellBTF:
                     plt.show()
 
         return factorization_set
-
-    
