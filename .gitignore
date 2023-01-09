@@ -131,6 +131,7 @@ dmypy.json
 
 # data
 .h5ad
+.pkl
 
 # pycharm
 .idea/
