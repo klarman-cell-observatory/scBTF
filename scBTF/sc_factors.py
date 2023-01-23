@@ -27,7 +27,7 @@ from .bayesian_parafac import BayesianCP
 class Factorization:
     """ Single group of factors """
 
-    def __init__(self, sample_factor, celltype_factor, gene_factor, region_factor=None):
+    def __init__(self, sample_factor, celltype_factor, region_factor=None, gene_factor=None):
         self.sample_factor = sample_factor
         self.celltype_factor = celltype_factor
         self.gene_factor = gene_factor
@@ -71,12 +71,61 @@ class FactorizationSet:
     def get_ranks(self):
         return self.factorizations.keys()
 
+    def add_mean_factorization(self, rank: int, restart_index: int, means: list):
+        """
+        if ndim == 3: sample x celltype x gene
+        if ndum == 4: sample x celltype x region x gene
+
+        """
+        if len(means) == 3:
+            self.add_factorization(
+                rank, restart_index,
+                Factorization(
+                    sample_factor=means[0],
+                    celltype_factor=means[1],
+                    gene_factor=means[2]
+                )
+            )
+        elif len(means) == 4:
+            self.add_factorization(
+                rank, restart_index,
+                Factorization(
+                    sample_factor=means[0],
+                    celltype_factor=means[1],
+                    region_factor=means[2],
+                    gene_factor=means[3]
+                )
+            )
+        else:
+            raise Exception("Implement >4d factorization")
+
     def add_precis_factorization(self, rank: int, restart_index: int, precis: dict):
+        """
+        if ndim == 3: sample x celltype x gene
+        if ndum == 4: sample x celltype x region x gene
+
+        """
         if len(precis.keys()) == 3:
             self.add_factorization(
-                rank, restart_index, Factorization(precis['factor_0'], precis['factor_1'], precis['factor_2']))
+                rank, restart_index,
+                Factorization(
+                    sample_factor=precis['factor_0'],
+                    celltype_factor=precis['factor_1'],
+                    gene_factor=precis['factor_2']
+                )
+            )
+        elif len(precis.keys()) == 4:
+            self.add_factorization(
+                rank, restart_index,
+                Factorization(
+                    sample_factor=precis['factor_0'],
+                    celltype_factor=precis['factor_1'],
+                    region_factor=precis['factor_2'],
+                    gene_factor=precis['factor_3']
+                )
+            )
         else:
-            raise Exception("Implement 4d factorization")
+            raise Exception("Implement >4d factorization")
 
     def add_factorization_params(self, rank: int, restart_index: int, params: dict):
         self.factorization_parameters[rank][restart_index] = params
@@ -296,7 +345,7 @@ class FactorizationSet:
         if self.get_factorization(rank, restart_index).region_factor is not None:
             labeled_region_factor = self.get_labeled_region_factor(rank, restart_index, True)
             labeled_region_factor['mode'] = 'region'
-            labeled_factors = pd.concat([labeled_sample_factor, labeled_celltype_factor, dH3])
+            labeled_factors = pd.concat([labeled_sample_factor, labeled_celltype_factor, labeled_region_factor])
         else:
             labeled_factors = pd.concat([labeled_sample_factor, labeled_celltype_factor])
         labeled_factors = labeled_factors[['mode', 'type', 'factor', 'index', 'value']]

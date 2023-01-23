@@ -232,7 +232,6 @@ class SingleCellTensor:
                 tensor[d, :, :, lr] = SingleCellTensor.compute_ccc_matrix(l, r, communication_score)
 
         sc_tensor.tensor = tensor
-        sc_tensor.tensor = sc_tensor.tensor.round()
         sc_tensor.region_list = sc_tensor.celltype_list
         sc_tensor.gene_list = [lr[0] + '_' + lr[1] for lr in lr_table]
 
