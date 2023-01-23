@@ -127,3 +127,12 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+
+# data
+.h5ad
+.pkl
+
+# pycharm
+.idea/
+.DS_Store
