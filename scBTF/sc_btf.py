@@ -1,14 +1,15 @@
 import torch
 import time
 
+import concurrent.futures
 import matplotlib.pyplot as plt
 from tqdm import trange
 from typing import Union
 
-from tensorly.decomposition import non_negative_parafac_hals, constrained_parafac
+from tensorly.decomposition import non_negative_parafac_hals
 
 from .sc_tensor import SingleCellTensor
-from .sc_factors import FactorizationSet, Factorization
+from .sc_factors import FactorizationSet
 from .bayesian_parafac import BayesianCP
 
 
@@ -27,7 +28,8 @@ class SingleCellBTF:
             fixed_mode: int = None,
             fixed_value=None,
             lr_decay_gamma: float = 1e-3,
-            plot_var_explained: bool = True
+            plot_var_explained: bool = True,
+            max_parallel_threads: int = 32
     ) -> FactorizationSet:
         """ Run BTF on the tensor """
 
@@ -39,28 +41,35 @@ class SingleCellBTF:
 
         factorization_set = FactorizationSet(sc_tensor=sc_tensor)
 
-        rank = [rank] if type(rank) == int else rank
-        for current_rank in rank:
-            print(f"Decomposing tensor of shape {tensor.shape} into rank {current_rank} matrices")
+        def factorize_rank_restart(current_rank, current_restart):
+            print(
+                f"Decomposing tensor of shape {tensor.shape} into rank {current_rank} matrices restart {current_restart}\n")
+            bayesianCP = BayesianCP(dims=tensor.shape, rank=current_rank, init_alpha=init_alpha, model=model,
+                                    fixed_mode=fixed_mode, fixed_value=fixed_value)
+            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+            bayesianCP.to(device)
+            tic = time.time()
+            svi = bayesianCP.fit(
+                tensor,
+                num_steps=num_steps,
+                initial_lr=initial_lr,
+                lr_decay_gamma=lr_decay_gamma,
+                progress_bar=False
+            )
+            time_taken = time.time() - tic
+            print(f'{current_rank} {current_restart} time: {time_taken}')
+            factorization_set.add_precis_factorization(current_rank, current_restart, bayesianCP.precis(tensor))
+            params = {'num_steps': num_steps, 'initial_lr': initial_lr, 'init_alpha': init_alpha,
+                      'lr_decay_gamma': lr_decay_gamma, 'time_taken': time_taken}
+            factorization_set.add_factorization_params(current_rank, current_restart, params)
+            return svi
 
-            for i in trange(n_restarts):
-                bayesianCP = BayesianCP(dims=tensor.shape, rank=current_rank, init_alpha=init_alpha, model=model,
-                                        fixed_mode=fixed_mode, fixed_value=fixed_value)
-                device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-                bayesianCP.to(device)
-                tic = time.time()
-                svi = bayesianCP.fit(
-                    tensor,
-                    num_steps=num_steps,
-                    initial_lr=initial_lr,
-                    lr_decay_gamma=lr_decay_gamma,
-                    progress_bar=False
-                )
-                time_taken = time.time() - tic
-                factorization_set.add_precis_factorization(current_rank, i, bayesianCP.precis(tensor))
-                params = {'num_steps': num_steps, 'initial_lr': initial_lr, 'init_alpha': init_alpha,
-                          'lr_decay_gamma': lr_decay_gamma, 'time_taken': time_taken}
-                factorization_set.add_factorization_params(current_rank, i, params)
+        def factorize_rank(current_rank):
+            print(f"Decomposing tensor of shape {tensor.shape} into rank {current_rank} matrices\n")
+            factorize_rank_restart_partial = lambda restart: factorize_rank_restart(current_rank, restart)
+            # with concurrent.futures.ThreadPoolExecutor(max_workers=max_parallel_threads) as executor:
+            for res in map(factorize_rank_restart_partial, range(n_restarts)):
+                print(res)
 
             if plot_var_explained:
                 with plt.rc_context({'figure.figsize': (5, 2)}):
@@ -71,6 +80,11 @@ class SingleCellBTF:
                     plt.ylabel("Variance Explained")
                     plt.ylim(min(var_explained) - 0.05, 1)
                     plt.show()
+            return factorization_set
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_parallel_threads) as executor:
+            for res in executor.map(factorize_rank, [rank] if type(rank) == int else rank):
+                print(res)
 
         return factorization_set
 
@@ -109,8 +123,8 @@ class SingleCellBTF:
                 )
                 time_taken = time.time() - tic
 
-                fc = Factorization(*[{'mean': torch.from_numpy(hals_factors[1][i])} for i in range(3)])
-                factorization_set.add_factorization(current_rank, i, fc)
+                factorization_set.add_mean_factorization(
+                    current_rank, i, [{'mean': torch.from_numpy(hals_factors[1][i])} for i in range(len(tensor.shape))])
 
                 params = {'num_steps': num_steps, 'time_taken': time_taken, 'losses': errors_hals}
                 factorization_set.add_factorization_params(current_rank, i, params)
