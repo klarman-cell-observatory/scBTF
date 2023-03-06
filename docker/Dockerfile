@@ -1,8 +1,16 @@
-FROM pkharchenkolab/numbat-rbase:latest
-SHELL ["/bin/bash", "-c"]
+FROM continuumio/miniconda3:22.11.1
 
-RUN sudo apt-get install apt-transport-https ca-certificates gnupg curl -y
+# Make RUN commands use `bash --login`:
+SHELL ["/bin/bash", "--login", "-c"]
 
-RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] http://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | tee /usr/share/keyrings/cloud.google.gpg && apt-get update -y && apt-get install google-cloud-sdk -y
+# Create the environment:
+COPY environment.yml /tmp/environment.yml
+RUN conda env create -f /tmp/environment.yml
 
-ADD run_pileup_and_phase.R ~/
+# Initialize conda in bash config fiiles:
+RUN conda init bash && source ~/.bashrc
+RUN conda config --set auto_activate_base false
+RUN echo 'conda activate minim_pyro' >> ~/.bashrc
+
+# Install scbtf
+RUN pip install --index-url https://test.pypi.org/simple/ scbtf==0.1.1 --user

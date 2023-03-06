@@ -212,7 +212,6 @@ class FactorizationSet:
         plt.tick_params(axis='x', which='major', pad=10)
         plt.tick_params(axis='y', which='major', pad=5)
         return fig
-    
 
     def rank_metrics_plot(self, force=False, max_parallel_threads=32):
         ranks = list(self.get_ranks())
@@ -503,8 +502,6 @@ class FactorizationSet:
                                 max_parallel_threads: int = 32):
         """ Compute consensus matrix of gene programs across restarts """
 
-        print(f'Building gene level consensus matrix for rank {rank}')
-        
         restarts = self.factorizations[rank].keys()
 
         get_gene_programs_partial = lambda restart: self.get_gene_programs(
