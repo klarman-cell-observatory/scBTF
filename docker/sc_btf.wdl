@@ -81,6 +81,10 @@ workflow scbtf_workflow {
 			zones = zones
 	}
 
+	output {
+		String output_dir = output_directory
+	}
+
 }
 
 
@@ -181,6 +185,8 @@ task factorize_rank {
 		python <<CODE
 
 		import pickle
+		import torch
+		import numpy as np
 		from rich import print
 		from scBTF import SingleCellBTF, FactorizationSet
 
@@ -281,13 +287,13 @@ task aggregate_factorization {
 
 		python <<CODE
 
-		from scBTF import SingleCellBTF
+		from scBTF import FactorizationSet
 
 		reconstructed_all = FactorizationSet()
 
 		for consensus_path in '~{sep="," consensus_factorizations}'.split(','):
 			reconstructed = FactorizationSet.load(consensus_path)
-			rank = reconstructed.get_ranks()[0]
+			rank = list(reconstructed.get_ranks())[0]
 			reconstructed_all.factorizations[rank] = reconstructed.factorizations[rank]
 
 		reconstructed_all.sc_tensor = reconstructed.sc_tensor
@@ -300,7 +306,7 @@ task aggregate_factorization {
 	>>>
 
 	output {
-		String all_consensus_factorizations = 'results/consensus_factorization.pkl'
+		File all_consensus_factorizations = 'results/consensus_factorization.pkl'
 	}
 
 	runtime {

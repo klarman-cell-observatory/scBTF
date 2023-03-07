@@ -60,8 +60,10 @@ class FactorizationSet:
         self.sc_tensor = sc_tensor
         self.factorizations = defaultdict(dict)
         self.factorization_parameters = defaultdict(dict)
+
         self.all_cluster_metrics = None
         self.all_gene_consensus_matrix = None
+        self.gene_consensus_lax = None
 
     def add_factorization(self, rank: int, restart_index: int, factorization: Factorization):
         self.factorizations[rank][restart_index] = factorization
@@ -214,7 +216,7 @@ class FactorizationSet:
         plt.tick_params(axis='y', which='major', pad=5)
         return fig
 
-    def rank_metrics_plot(self, force=False, max_parallel_threads=32):
+    def rank_metrics_plot(self, force=False, max_parallel_threads=1):
         ranks = list(self.get_ranks())
 
         if 'gene_consensus_lax' not in dir(self) or self.gene_consensus_lax is None or force:
@@ -233,7 +235,8 @@ class FactorizationSet:
         sample_coph_cor = pd.DataFrame({
             "Rank": ranks,
             "Cophenetic Correlation": [
-                self.cophenetic_correlation(self.consensus_matrix(rank, n_clusters=min(rank,len(self.sc_tensor.sample_list))))
+                self.cophenetic_correlation(
+                    self.consensus_matrix(rank, n_clusters=min(rank, len(self.sc_tensor.sample_list))))
                 for rank in ranks
             ]
         })

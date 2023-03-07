@@ -127,6 +127,7 @@ class SingleCellTensor:
 
         return adata
 
+    @staticmethod
     def from_anndata_with_regions(
             adata: ad.AnnData,
             sample_label: str,
