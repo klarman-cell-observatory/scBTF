@@ -1,25 +1,20 @@
 version 1.0
 
-## Version 3-3-2023
-##
-## Distributed under terms of the MIT License
-## Copyright (c) 2023 Daniel Chafamo
-## Contact <chafamodaniel@gmail.com>
 
 workflow scbtf_workflow {
-
 	input {
 		File adata_path
 		Array[Int] ranks
 		String sample_label
 		String celltype_label
 		String output_directory
+		String method = "BTF"
 		Int n_restarts = 50
 		Int scale_to = 1000000
 		Int filter_gene_count = 50
-		Boolean hgnc_approved_genes_only = True
-		Boolean normalize = True
-		String model = 'gamma_poisson'
+		Boolean hgnc_approved_genes_only = true
+		Boolean normalize = true
+		String model = "gamma_poisson"
 		Int num_steps = 1500
 		Float initial_lr = 1.0
 		Float lr_decay_gamma = 0.001
@@ -29,7 +24,7 @@ workflow scbtf_workflow {
 		Int disk_space = 50
 		Int num_cpu = 16
 		String memory = "120G"
-		String docker_version = "numbat_wdl:0.0.2"
+		String docker_version = "scbtf:0.0.1"
 		String zones = "us-east1-d us-west1-a us-west1-b"
 	}
 
@@ -56,6 +51,7 @@ workflow scbtf_workflow {
 			input:
 				tensor_path = tensorize.tensor,
 				rank = rank,
+				method = method,
 				model = model,
 				n_restarts = n_restarts,
 				num_steps = num_steps,
@@ -75,7 +71,7 @@ workflow scbtf_workflow {
 	call aggregate_factorization  {
 		input:
 			consensus_factorizations = scattered_factorize_rank.consensus_factorization,
-			output_directory = output_directory
+			output_directory = output_directory,
 
 			preemptible = preemptible,
 			disk_space = disk_space,
@@ -85,9 +81,6 @@ workflow scbtf_workflow {
 			zones = zones
 	}
 
-	output {
-		String output_directory = output_directory
-	}
 }
 
 
@@ -110,7 +103,11 @@ task tensorize {
 		String zones
 	}
 
-	command {
+	command <<<
+		set -e
+		mkdir -p results
+		source ~/.bashrc
+
 		python <<CODE
 
 		import pickle
@@ -124,18 +121,18 @@ task tensorize {
 		sc_tensor = SingleCellTensor.from_anndata(
 			adata, sample_label='~{sample_label}',
 			celltype_label='~{celltype_label}',
-			scale_to='~{scale_to}', normalize='~{normalize}',
-			hgnc_approved_genes_only='~{hgnc_approved_genes_only}',
-			filter_gene_count='~{filter_gene_count}'
+			scale_to=~{scale_to}, normalize=('~{normalize}'=='true'),
+			hgnc_approved_genes_only=('~{hgnc_approved_genes_only}'=='true'),
+			filter_gene_count=~{filter_gene_count}
 		)
 
 		sc_tensor.tensor = sc_tensor.tensor.round()
 		with open('results/tensor.pkl', 'wb') as file:
 			pickle.dump(sc_tensor, file)
-		print(f"Saved tensor of shape : {sc_tensor.tensor.shape} ")
+		print("Saved tensor of shape : ", sc_tensor.tensor.shape)
 
 		CODE
-	}
+	>>>
 
 	output {
 		File tensor = "results/tensor.pkl"
@@ -151,18 +148,16 @@ task tensorize {
 		memory: memory
 	}
 
-	meta {
-		author: "Daniel Chafamo"
-		email : "chafamodaniel@gamil.com"
-	}
 
 }
+
 
 task factorize_rank {
 
 	input {
 		File tensor_path
 		Int rank
+		String method
 		String model
 		Int n_restarts
 		Int num_steps
@@ -178,35 +173,39 @@ task factorize_rank {
 		String zones
 	}
 
-	command {
+	command <<<
+		set -e
+		mkdir -p results
+		source ~/.bashrc
+
 		python <<CODE
 
 		import pickle
 		from rich import print
-		from scBTF import SingleCellBTF
+		from scBTF import SingleCellBTF, FactorizationSet
 
 		with open('~{tensor_path}', 'rb') as file:
 			sc_tensor = pickle.load(file)
-		print(f"Loaded tensor of shape : {sc_tensor.tensor.shape} ")
+		print("Loaded tensor of shape : ", sc_tensor.tensor.shape)
 
 		if '~{method}' == "BTF":
 			factorization_set = SingleCellBTF.factorize(
 				sc_tensor=sc_tensor,
-				rank='~{rank}',
+				rank=~{rank},
 				model='~{model}',
-				n_restarts='~{n_restarts}',
-				num_steps='~{num_steps}',
-				init_alpha='~{init_alpha}',
-				initial_lr='~{initial_lr}',
-				lr_decay_gamma='~{lr_decay_gamma}',
+				n_restarts=~{n_restarts},
+				num_steps=~{num_steps},
+				init_alpha=~{init_alpha},
+				initial_lr=~{initial_lr},
+				lr_decay_gamma=~{lr_decay_gamma},
 				plot_var_explained=False
 			)
 		elif '~{method}' == "HALS":
 			factorization_set = SingleCellBTF.factorize_hals(
 				sc_tensor=sc_tensor,
-				rank='~{rank}',
-				num_steps='~{num_steps}',
-				n_restarts='~{n_restarts}',
+				rank=~{rank},
+				num_steps=~{num_steps},
+				n_restarts=~{n_restarts},
 				sparsity_coefficients=[0., 0., 10.],
 				plot_var_explained=False
 			)
@@ -223,10 +222,10 @@ task factorize_rank {
 				sc_tensor = factorization_set.sc_tensor,
 				rank = selected_rank,
 				n_restarts = 1,
-				init_alpha = '~{init_alpha}',
-				num_steps = '~{num_steps}',
-				initial_lr='~{initial_lr}',
-				lr_decay_gamma='~{lr_decay_gamma}',
+				init_alpha = ~{init_alpha},
+				num_steps = ~{num_steps},
+				initial_lr=~{initial_lr},
+				lr_decay_gamma=~{lr_decay_gamma},
 				model = 'gamma_poisson_fixed',
 				fixed_mode = 2,
 				fixed_value = torch.from_numpy(medians.T).float(),
@@ -235,12 +234,12 @@ task factorize_rank {
 
 			gene_factor = reconstructed.get_factorization(rank = selected_rank, restart_index = 0).gene_factor['mean'].numpy()
 			print((1 - np.isclose(medians.T, gene_factor, atol=2)).sum(), '/', medians.flatten().shape[0], ' mismatches in final gene factors')
-			print(f'variance explained by reconstructed factorization = {reconstructed.variance_explained(rank=selected_rank, restart_index=0).item() :.3}')
+			print('variance explained by reconstructed factorization = ', reconstructed.variance_explained(rank=selected_rank, restart_index=0).item())
 			reconstructed_all.factorizations[selected_rank] = reconstructed.factorizations[selected_rank]
 		reconstructed_all.save('results/rank_~{rank}_consensus_factorization.pkl')
 
 		CODE
-	}
+	>>>
 
 	output {
 		File factorizations = "results/rank_~{rank}_factorization.pkl"
@@ -257,10 +256,6 @@ task factorize_rank {
 		memory: memory
 	}
 
-	meta {
-		author: "Daniel Chafamo"
-		email : "chafamodaniel@gamil.com"
-	}
 
 }
 
@@ -279,7 +274,11 @@ task aggregate_factorization {
 		String zones
 	}
 
-	command {
+	command <<<
+		set -e
+		mkdir -p results
+		source ~/.bashrc
+
 		python <<CODE
 
 		from scBTF import SingleCellBTF
@@ -298,10 +297,10 @@ task aggregate_factorization {
 		CODE
 
 		gsutil -m cp -r "results/" ~{output_directory}/
-	}
+	>>>
 
 	output {
-		File all_consensus_factorizations = 'results/consensus_factorization.pkl'
+		String all_consensus_factorizations = 'results/consensus_factorization.pkl'
 	}
 
 	runtime {
@@ -312,9 +311,5 @@ task aggregate_factorization {
 		cpu: num_cpu
 		zones: zones
 		memory: memory
-	}
-	meta {
-		author: "Daniel Chafamo"
-		email : "chafamodaniel@gamil.com"
 	}
 }

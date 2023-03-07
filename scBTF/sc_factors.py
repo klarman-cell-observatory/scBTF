@@ -197,18 +197,19 @@ class FactorizationSet:
 
     def plot_gene_across_components(self, rank: int, gene: str, restart_index: int):
         """ Plot mean and high density region of the loadings of a given gene across the factors """
-        color=(0.9058823529411765, 0.5411764705882353, 0.7647058823529411)
-        
+        color = (0.9058823529411765, 0.5411764705882353, 0.7647058823529411)
+
         gene_index = self.sc_tensor.gene_list.index(gene)
         factorization = self.get_factorization(rank, restart_index)
         gene_factors = factorization.gene_factor['mean']
         fig, ax = plt.subplots(figsize=(6, 4))
-        ax = sns.scatterplot(x=torch.arange(gene_factors.shape[1]), y=gene_factors[gene_index, :], s=60, color=color, ax=ax)
+        ax = sns.scatterplot(x=torch.arange(gene_factors.shape[1]), y=gene_factors[gene_index, :], s=60, color=color,
+                             ax=ax)
         ax.set(xlabel="Component", ylabel="Loading", title=gene)
         ax.vlines(torch.arange(gene_factors.shape[1]),
                   factorization.gene_factor['|0.89'][gene_index, :],
                   factorization.gene_factor['0.89|'][gene_index, :], color=color, linewidth=3.0)
-        plt.ylabel("Loading",labelpad=10)
+        plt.ylabel("Loading", labelpad=10)
         plt.tick_params(axis='x', which='major', pad=10)
         plt.tick_params(axis='y', which='major', pad=5)
         return fig
@@ -217,26 +218,27 @@ class FactorizationSet:
         ranks = list(self.get_ranks())
 
         if 'gene_consensus_lax' not in dir(self) or self.gene_consensus_lax is None or force:
-            consensus_partial = lambda rank: self.gene_consensus_matrix(rank, entropy=-1e3, eps=-1e3)
+            consensus_partial = lambda rank: self.gene_consensus_matrix(rank, entropy=-1000, eps=-1000)
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_parallel_threads) as executor:
                 self.gene_consensus_lax = dict(zip(ranks, executor.map(consensus_partial, ranks)))
-        print('Constructed/retreived gene_consensus_lax matrices')
 
         var_explained = pd.DataFrame({
-            rank: [self.variance_explained(rank, i).item() for i in range(len(self.factorizations[rank].keys()))] 
+            rank: [self.variance_explained(rank, i).item() for i in range(len(self.factorizations[rank].keys()))]
             for rank in ranks
         })
-        coph_cor = pd.DataFrame({"Rank": ranks, 
+        coph_cor = pd.DataFrame({
+            "Rank": ranks,
             "Cophenetic Correlation": [self.cophenetic_correlation(self.gene_consensus_lax[rank]) for rank in ranks]
         })
-        sample_coph_cor = pd.DataFrame({"Rank": ranks,
-                                        "Cophenetic Correlation": [self.cophenetic_correlation(
-                                            self.consensus_matrix(rank, n_clusters=min(rank,
-                                                                                       len(self.sc_tensor.sample_list))))
-                                            for rank in ranks]
-                                        })
+        sample_coph_cor = pd.DataFrame({
+            "Rank": ranks,
+            "Cophenetic Correlation": [
+                self.cophenetic_correlation(self.consensus_matrix(rank, n_clusters=min(rank,len(self.sc_tensor.sample_list))))
+                for rank in ranks
+            ]
+        })
         all_cluster_metrics = self.cluster_gene_factors()
-        
+
         silhouette = [all_cluster_metrics[ranks[i]].iloc[i]['silhouette_score'] for i in range(len(ranks))]
 
         fig, axs = plt.subplots(1, 4, figsize=(12, 2.5), sharey=False)
@@ -290,12 +292,13 @@ class FactorizationSet:
 
             cluster_metrics = pd.DataFrame(columns=['n_clusters', 'inertia', 'silhouette_score'])
             for n_clusters in self.get_ranks():
-                kmeans = KMeans(init="k-means++", n_clusters=n_clusters, n_init=10, tol=1e-8)
-                estimator = make_pipeline(StandardScaler(), kmeans).fit(data_normed)
-                cluster_metrics.loc[len(cluster_metrics.index)] = [
-                    n_clusters, estimator[-1].inertia_,
-                    metrics.silhouette_score(data_normed, estimator[-1].labels_)
-                ]
+                if n_clusters < data_normed.shape[0]:
+                    kmeans = KMeans(init="k-means++", n_clusters=n_clusters, n_init=10, tol=1e-8)
+                    estimator = make_pipeline(StandardScaler(), kmeans).fit(data_normed)
+                    cluster_metrics.loc[len(cluster_metrics.index)] = [
+                        n_clusters, estimator[-1].inertia_,
+                        metrics.silhouette_score(data_normed, estimator[-1].labels_)
+                    ]
             self.all_cluster_metrics[rank] = cluster_metrics
         return self.all_cluster_metrics
 
@@ -483,7 +486,8 @@ class FactorizationSet:
                 selected_features.max(axis=1) - selected_features.min(axis=1))
         mm = mm.T
         y, x = np.where(mm > threshold)
-        gene_programs = pd.DataFrame({'y': selected_features.index[y].to_list(), 'x': x}).groupby('x')['y'].apply(list).to_dict()
+        gene_programs = pd.DataFrame({'y': selected_features.index[y].to_list(), 'x': x}).groupby('x')['y'].apply(
+            list).to_dict()
 
         res = [pd.DataFrame({'gene': gene_prog,
                              'relative': [-mm.loc[g, f] for g in gene_prog],
@@ -498,14 +502,14 @@ class FactorizationSet:
         return (gene_programs, selected_features.idxmax(axis=1)) if return_argmx else gene_programs
 
     def gene_consensus_matrix(self, rank: int, normalize_gene_factors: bool = True,
-                                threshold: float = 0.8, sort_by='entropy', entropy: int = 3, eps: int = 0,
-                                max_parallel_threads: int = 32):
+                              threshold: float = 0.8, sort_by='entropy', entropy: int = 3, eps: int = 0,
+                              max_parallel_threads: int = 32):
         """ Compute consensus matrix of gene programs across restarts """
 
         restarts = self.factorizations[rank].keys()
 
         get_gene_programs_partial = lambda restart: self.get_gene_programs(
-            rank, restart, normalize_gene_factors=normalize_gene_factors, threshold=threshold, 
+            rank, restart, normalize_gene_factors=normalize_gene_factors, threshold=threshold,
             sort_by=sort_by, entropy=entropy, eps=eps, return_argmx=True
         )
 
