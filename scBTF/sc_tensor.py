@@ -6,6 +6,7 @@ import anndata as ad
 from typing import Optional
 from adpbulk import ADPBulk
 from tqdm import tqdm
+import pkg_resources
 
 
 class SingleCellTensor:
@@ -44,6 +45,7 @@ class SingleCellTensor:
             scale_to: int = 1e6,
             cell_types: list[str] = None,
             enrich_db_genes_only: bool = False,
+            hgnc_approved_genes_only: bool = False,
             custom_gene_set: list[str] = None,
             filter_gene_count: int = 10,
             enrich_dbs: list[str] = ['GO_Biological_Process_2021']  # ,'KEGG_2021_Human', 'Reactome_2022']
@@ -60,19 +62,10 @@ class SingleCellTensor:
 
         adata = adata.raw.to_adata()
 
-        if cell_types is not None:
-            adata = adata[adata.obs[celltype_label].isin(cell_types)].copy()
-
-        if enrich_db_genes_only:
-            go_genes = set.union(
-                *[set(g for gset in SingleCellTensor.parse_gmt(db).values() for g in gset) for db in enrich_dbs])
-            adata = adata[:, adata.var_names.isin(go_genes)].copy()
-
-        if custom_gene_set is not None:
-            adata = adata[:, adata.var_names.isin(custom_gene_set)].copy()
-
-        if filter_gene_count is not None:
-            adata = adata[:, adata.X.sum(axis=0) > filter_gene_count].copy()
+        adata = SingleCellTensor.filter_adata(
+            adata, cell_types, celltype_label, custom_gene_set, enrich_db_genes_only,
+            enrich_dbs, filter_gene_count, hgnc_approved_genes_only
+        )
 
         adpb = ADPBulk(adata, [sample_label, celltype_label])
         pseudobulk_matrix = adpb.fit_transform()
@@ -107,6 +100,33 @@ class SingleCellTensor:
                                 sample_features=sample_features
                                 )
 
+    @staticmethod
+    def filter_adata(adata, cell_types, celltype_label, custom_gene_set, enrich_db_genes_only, enrich_dbs,
+                     filter_gene_count, hgnc_approved_genes_only):
+
+        if cell_types is not None:
+            adata = adata[adata.obs[celltype_label].isin(cell_types)].copy()
+
+        if enrich_db_genes_only:
+            go_genes = set.union(
+                *[set(g for gset in SingleCellTensor.parse_gmt(db).values() for g in gset) for db in enrich_dbs])
+            adata = adata[:, adata.var_names.isin(go_genes)].copy()
+
+        if hgnc_approved_genes_only:
+            hgnc_path = pkg_resources.resource_filename("scBTF", "resources/gene_sets/hgnc_complete_set_2020-07-01.txt")
+            hgnc_full = pd.read_csv(hgnc_path, sep='\t', low_memory=False)
+            selected_genes = hgnc_full[
+                (hgnc_full.status == 'Approved') & (hgnc_full.locus_group == 'protein-coding gene')]
+            adata = adata[:, adata.var_names.str.split('.').str[0].isin(selected_genes['symbol'])].copy()
+
+        if custom_gene_set is not None:
+            adata = adata[:, adata.var_names.isin(custom_gene_set)].copy()
+
+        if filter_gene_count is not None:
+            adata = adata[:, adata.X.sum(axis=0) > filter_gene_count].copy()
+
+        return adata
+
     def from_anndata_with_regions(
             adata: ad.AnnData,
             sample_label: str,
@@ -116,6 +136,7 @@ class SingleCellTensor:
             scale_to: int = 1e6,
             cell_types: list[str] = None,
             enrich_db_genes_only: bool = False,
+            hgnc_approved_genes_only: bool = False,
             custom_gene_set: list[str] = None,
             filter_gene_count: int = 10,
             enrich_dbs: list[str] = ['GO_Biological_Process_2021']  # ,'KEGG_2021_Human', 'Reactome_2022']
@@ -132,19 +153,10 @@ class SingleCellTensor:
 
         adata = adata.raw.to_adata()
 
-        if cell_types is not None:
-            adata = adata[adata.obs[celltype_label].isin(cell_types)].copy()
-
-        if enrich_db_genes_only:
-            go_genes = set.union(
-                *[set(g for gset in SingleCellTensor.parse_gmt(db).values() for g in gset) for db in enrich_dbs])
-            adata = adata[:, adata.var_names.isin(go_genes)].copy()
-
-        if custom_gene_set is not None:
-            adata = adata[:, adata.var_names.isin(custom_gene_set)].copy()
-
-        if filter_gene_count is not None:
-            adata = adata[:, adata.X.sum(axis=0) > filter_gene_count].copy()
+        adata = SingleCellTensor.filter_adata(
+            adata, cell_types, celltype_label, custom_gene_set, enrich_db_genes_only,
+            enrich_dbs, filter_gene_count, hgnc_approved_genes_only
+        )
 
         adpb = ADPBulk(adata, [sample_label, celltype_label, region_label])
         pseudobulk_matrix = adpb.fit_transform()
@@ -243,7 +255,7 @@ class SingleCellTensor:
         Retrieve genes that make up gene set enrichment libraries
         """
         BASE_ENRICHR_URL = "http://maayanlab.cloud"
-        DEFAULT_CACHE_PATH = "data/gene_sets"
+        DEFAULT_CACHE_PATH = "resources/gene_sets"
         os.makedirs(DEFAULT_CACHE_PATH, exist_ok=True)
 
         def _download_libraries(libname: str):

@@ -2,6 +2,7 @@ import pickle
 import scipy
 import torch
 import rich
+import concurrent.futures
 
 import torch.nn as nn
 import numpy as np
@@ -196,37 +197,46 @@ class FactorizationSet:
 
     def plot_gene_across_components(self, rank: int, gene: str, restart_index: int):
         """ Plot mean and high density region of the loadings of a given gene across the factors """
+        color=(0.9058823529411765, 0.5411764705882353, 0.7647058823529411)
+        
         gene_index = self.sc_tensor.gene_list.index(gene)
         factorization = self.get_factorization(rank, restart_index)
         gene_factors = factorization.gene_factor['mean']
-        fig, ax = plt.subplots(figsize=(4, 3))
-        ax = sns.scatterplot(x=torch.arange(gene_factors.shape[1]), y=gene_factors[gene_index, :], s=40, color="k",
-                             ax=ax)
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax = sns.scatterplot(x=torch.arange(gene_factors.shape[1]), y=gene_factors[gene_index, :], s=60, color=color, ax=ax)
         ax.set(xlabel="Component", ylabel="Loading", title=gene)
         ax.vlines(torch.arange(gene_factors.shape[1]),
                   factorization.gene_factor['|0.89'][gene_index, :],
-                  factorization.gene_factor['0.89|'][gene_index, :], color="k")
-        plt.show()
+                  factorization.gene_factor['0.89|'][gene_index, :], color=color, linewidth=3.0)
+        plt.ylabel("Loading",labelpad=10)
+        plt.tick_params(axis='x', which='major', pad=10)
+        plt.tick_params(axis='y', which='major', pad=5)
         return fig
 
-    def rank_metrics_plot(self):
+    def rank_metrics_plot(self, force=False, max_parallel_threads=32):
+        ranks = list(self.get_ranks())
+
+        if 'gene_consensus_lax' not in dir(self) or self.gene_consensus_lax is None or force:
+            consensus_partial = lambda rank: self.gene_consensus_matrix(rank, entropy=-1e3, eps=-1e3)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_parallel_threads) as executor:
+                self.gene_consensus_lax = dict(zip(ranks, executor.map(consensus_partial, ranks)))
+        print('Constructed/retreived gene_consensus_lax matrices')
+
         var_explained = pd.DataFrame({
-            rank: [self.variance_explained(rank, i).item() for i in range(len(self.factorizations[rank].keys()))] for
-            rank in self.get_ranks()
+            rank: [self.variance_explained(rank, i).item() for i in range(len(self.factorizations[rank].keys()))] 
+            for rank in ranks
         })
-        coph_cor = pd.DataFrame({"Rank": self.get_ranks(),
-                                 "Cophenetic Correlation": [self.cophenetic_correlation(
-                                     self.gene_consensus_matrix(rank=rank, entropy=-1e3, eps=-1e3)) for rank in
-                                     self.get_ranks()]
-                                 })
-        sample_coph_cor = pd.DataFrame({"Rank": self.get_ranks(),
+        coph_cor = pd.DataFrame({"Rank": ranks, 
+            "Cophenetic Correlation": [self.cophenetic_correlation(self.gene_consensus_lax[rank]) for rank in ranks]
+        })
+        sample_coph_cor = pd.DataFrame({"Rank": ranks,
                                         "Cophenetic Correlation": [self.cophenetic_correlation(
                                             self.consensus_matrix(rank, n_clusters=min(rank,
                                                                                        len(self.sc_tensor.sample_list))))
-                                            for rank in self.get_ranks()]
+                                            for rank in ranks]
                                         })
         all_cluster_metrics = self.cluster_gene_factors()
-        ranks = list(self.get_ranks())
+        
         silhouette = [all_cluster_metrics[ranks[i]].iloc[i]['silhouette_score'] for i in range(len(ranks))]
 
         fig, axs = plt.subplots(1, 4, figsize=(12, 2.5), sharey=False)
@@ -473,8 +483,7 @@ class FactorizationSet:
                 selected_features.max(axis=1) - selected_features.min(axis=1))
         mm = mm.T
         y, x = np.where(mm > threshold)
-        argmx = pd.DataFrame({'y': selected_features.index[y].to_list(), 'x': x})
-        gene_programs = argmx.groupby('x')['y'].apply(list).to_dict()
+        gene_programs = pd.DataFrame({'y': selected_features.index[y].to_list(), 'x': x}).groupby('x')['y'].apply(list).to_dict()
 
         res = [pd.DataFrame({'gene': gene_prog,
                              'relative': [-mm.loc[g, f] for g in gene_prog],
@@ -486,28 +495,31 @@ class FactorizationSet:
         if sort_by == 'entropy':
             [gene_prog.sort(key=lambda g: -gscores[g]) for gene_prog in gene_programs.values()]
         # print([len(gene_prog) for gene_prog in gene_programs.values()])
-        return (gene_programs, argmx) if return_argmx else gene_programs
+        return (gene_programs, selected_features.idxmax(axis=1)) if return_argmx else gene_programs
 
     def gene_consensus_matrix(self, rank: int, normalize_gene_factors: bool = True,
-                              threshold: float = 0.8, sort_by='entropy', entropy: int = 3, eps: int = 0):
+                                threshold: float = 0.8, sort_by='entropy', entropy: int = 3, eps: int = 0,
+                                max_parallel_threads: int = 32):
         """ Compute consensus matrix of gene programs across restarts """
 
-        high_entropy_gene_set = set()
-        all_argmx = []
         restarts = self.factorizations[rank].keys()
-        for restart in restarts:
-            gene_programs, argmx = self.get_gene_programs(rank, restart, normalize_gene_factors=normalize_gene_factors,
-                                                          threshold=threshold, sort_by=sort_by, entropy=entropy,
-                                                          eps=eps, return_argmx=True)
-            all_argmx.append(argmx)
-            [high_entropy_gene_set.update(program) for program in gene_programs.values()]
+
+        get_gene_programs_partial = lambda restart: self.get_gene_programs(
+            rank, restart, normalize_gene_factors=normalize_gene_factors, threshold=threshold, 
+            sort_by=sort_by, entropy=entropy, eps=eps, return_argmx=True
+        )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_parallel_threads) as executor:
+            gps = dict(zip(restarts, executor.map(get_gene_programs_partial, restarts)))
+
+        high_entropy_gene_set = set()
+        all_argmx = [gps[restart][1] for restart in restarts]
+        [high_entropy_gene_set.update(program) for restart in restarts for program in gps[restart][0].values()]
 
         HEG = pd.DataFrame(index=list(high_entropy_gene_set))
         for restart in restarts:
-            argmx = all_argmx[restart]
-            argmx.index = argmx.y
-            argmx = argmx.filter(items=high_entropy_gene_set, axis=0)
-            HEG.loc[argmx.index, str(restart)] = argmx['x']
+            argmx = all_argmx[restart].filter(items=high_entropy_gene_set, axis=0)
+            HEG.loc[argmx.index, str(restart)] = argmx.values
 
         dim1 = HEG.shape[0]
         cons = np.mat(np.zeros((dim1, dim1)))
@@ -516,7 +528,9 @@ class FactorizationSet:
             mat2 = np.tile(HEG[str(restart)].values.reshape((-1, 1)), (1, HEG.shape[0]))
             conn = np.mat(mat1 == mat2, dtype='d')
             cons += conn
-        return np.divide(cons, len(restarts))
+        res2 = np.divide(cons, len(restarts))
+
+        return res2
 
     def gene_factor_elbow_plots(self, rank, restart_index, factor_index=None, ncols=5, num_genes=20, fontsize=9,
                                 normalize=True):
@@ -587,21 +601,21 @@ class FactorizationSet:
     @staticmethod
     def select_features(W, entropy=3, eps=0, return_scores=False):
         """ Select high entropy features that differentiate basis vectors in `W` """
-        scores = np.zeros(W.shape[0])
-        for f in range(W.shape[0]):
-            # probability that the i-th feature contributes to q-th basis vector.
-            prob = W[f, :] / (W[f, :].sum() + np.finfo(W.dtype).eps)
-            scores[f] = np.dot(prob, np.log2(prob + np.finfo(W.dtype).eps).T)
+        # scores = np.zeros(W.shape[0])
+        # for f in range(W.shape[0]):
+        #     # probability that the i-th feature contributes to q-th basis vector.
+        #     prob = W[f, :] / (W[f, :].sum() + np.finfo(W.dtype).eps)
+        #     scores[f] = np.dot(prob, np.log2(prob + np.finfo(W.dtype).eps).T)
+        # scores = 1. + 1. / np.log2(W.shape[1]) * scores
+
+        prob = W / (np.sum(W, axis=1, keepdims=True) + np.finfo(W.dtype).eps)
+        scores = np.sum(prob * np.log2(prob + np.finfo(W.dtype).eps), axis=1)
         scores = 1. + 1. / np.log2(W.shape[1]) * scores
 
-        th = np.median(scores) + entropy * np.median(abs(scores - np.median(scores)))
-        sel = scores > th
-        m = np.median(W.flatten())
-        sel = np.array([sel[i] and np.max(W[i, :]) > m + (eps * np.std(W.flatten()))
-                        for i in range(W.shape[0])])
-        if return_scores:
-            return sel, scores
-        return sel
+        entropy_threshold = np.median(scores) + entropy * np.median(abs(scores - np.median(scores)))
+        max_loading_threshold = np.median(W.flatten()) + (eps * np.std(W.flatten()))
+        selected = (scores > entropy_threshold) & (np.max(W, axis=1) > max_loading_threshold)
+        return (selected, scores) if return_scores else selected
 
     @staticmethod
     def connectivity(sample_factor, n_clusters=4):

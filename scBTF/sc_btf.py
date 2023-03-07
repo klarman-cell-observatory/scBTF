@@ -5,11 +5,11 @@ import matplotlib.pyplot as plt
 from tqdm import trange
 from typing import Union
 
-from tensorly.decomposition import non_negative_parafac_hals, constrained_parafac
+from tensorly.decomposition import non_negative_parafac_hals
 
-from .sc_tensor import SingleCellTensor
-from .sc_factors import FactorizationSet, Factorization
-from .bayesian_parafac import BayesianCP
+from scBTF.sc_tensor import SingleCellTensor
+from scBTF.sc_factors import FactorizationSet
+from scBTF.bayesian_parafac import BayesianCP
 
 
 class SingleCellBTF:
@@ -49,7 +49,7 @@ class SingleCellBTF:
                 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
                 bayesianCP.to(device)
                 tic = time.time()
-                svi = bayesianCP.fit(
+                bayesianCP.fit(
                     tensor,
                     num_steps=num_steps,
                     initial_lr=initial_lr,
@@ -109,8 +109,9 @@ class SingleCellBTF:
                 )
                 time_taken = time.time() - tic
 
-                fc = Factorization(*[{'mean': torch.from_numpy(hals_factors[1][i])} for i in range(3)])
-                factorization_set.add_factorization(current_rank, i, fc)
+                factorization_set.add_mean_factorization(
+                    current_rank, i, [{'mean': torch.from_numpy(hals_factors[1][i])} for i in range(len(tensor.shape))]
+                )
 
                 params = {'num_steps': num_steps, 'time_taken': time_taken, 'losses': errors_hals}
                 factorization_set.add_factorization_params(current_rank, i, params)
@@ -126,3 +127,4 @@ class SingleCellBTF:
                     plt.show()
 
         return factorization_set
+
