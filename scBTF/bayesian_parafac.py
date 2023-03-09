@@ -10,7 +10,6 @@ from pyro.infer import SVI, Trace_ELBO, Predictive, TraceMeanField_ELBO
 import pyro.distributions as dist
 from pyro.infer.autoguide import AutoNormal, AutoMultivariateNormal, AutoDelta, AutoDiagonalNormal, init_to_feasible
 
-# assert pyro.__version__.startswith('1.8.2')
 pyro.enable_validation(True)
 
 warnings.simplefilter(action='ignore', category=FutureWarning)

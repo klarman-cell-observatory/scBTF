@@ -13,7 +13,7 @@ RUN conda config --set auto_activate_base false
 RUN echo 'conda activate minim_pyro' >> ~/.bashrc
 
 # Install scbtf
-RUN pip install --index-url https://test.pypi.org/simple/ scbtf==0.1.1 --user
+RUN pip install --index-url https://test.pypi.org/simple/ scbtf==0.1.2 --user
 
 # install gcloud
 RUN apt-get update && apt-get install --no-install-recommends -y curl alien unzip build-essential dpkg-dev gnupg lsb-release procps && \

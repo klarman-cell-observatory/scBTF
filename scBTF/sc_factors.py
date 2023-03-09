@@ -3,6 +3,7 @@ import scipy
 import torch
 import rich
 import concurrent.futures
+import fastcluster
 
 import torch.nn as nn
 import numpy as np
@@ -216,11 +217,11 @@ class FactorizationSet:
         plt.tick_params(axis='y', which='major', pad=5)
         return fig
 
-    def rank_metrics_plot(self, force=False, max_parallel_threads=1):
+    def rank_metrics_plot(self, force=False, max_parallel_threads=1, entropy=-1000, eps=-1000):
         ranks = list(self.get_ranks())
 
         if 'gene_consensus_lax' not in dir(self) or self.gene_consensus_lax is None or force:
-            consensus_partial = lambda rank: self.gene_consensus_matrix(rank, entropy=-1000, eps=-1000)
+            consensus_partial = lambda rank: self.gene_consensus_matrix(rank, entropy=entropy, eps=eps)
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_parallel_threads) as executor:
                 self.gene_consensus_lax = dict(zip(ranks, executor.map(consensus_partial, ranks)))
 
@@ -348,6 +349,7 @@ class FactorizationSet:
                         alpha=0.9,
                         top=0.9,
                         factors=None,
+                        title=True
                         ):
         """ Create a seaborn facetgrid summarizing the results of a CP decomposition """
 
@@ -387,7 +389,7 @@ class FactorizationSet:
         g.figure.subplots_adjust(wspace=0.2)
         g.set_xticklabels(rotation=90)
         plt.subplots_adjust(top=top)
-        g.fig.suptitle('CP Decomposition Factors')
+        if title: g.fig.suptitle('CP Decomposition Factors')
         g.add_legend()
         plt.show()
         return g
@@ -540,20 +542,20 @@ class FactorizationSet:
         return res2
 
     def gene_factor_elbow_plots(self, rank, restart_index, factor_index=None, ncols=5, num_genes=20, fontsize=9,
-                                normalize=True):
+                                normalize=True, figsize=(3.5, 3.5)):
         gene_factor = self.get_factorization(rank=rank, restart_index=restart_index).gene_factor['mean'].numpy()
-        gene_factor = nn.functional.normalize(torch.from_numpy(gene_factor), p=2, dim=0).numpy()
         if normalize:
+            gene_factor = nn.functional.normalize(torch.from_numpy(gene_factor), p=2, dim=0).numpy()
             gene_factor = (gene_factor.T / gene_factor.T.sum(axis=0)).T
         factors = pd.DataFrame(gene_factor, index=self.sc_tensor.gene_list).fillna(0)
 
         if factor_index is not None:
-            fig, ax = plt.subplots(figsize=(3.5, 3.5))
+            fig, ax = plt.subplots(figsize=figsize)
             load = factors[factor_index].sort_values(ascending=False)[:num_genes]
             ax.plot(load.values, '.', markersize=0)
             [ax.text(i, load[i], load.index[i], rotation='vertical', verticalalignment='bottom',
                      horizontalalignment='center', fontsize=fontsize) for i in range(num_genes)]
-            ax.set_ylim(min(load.values) - 0.05, max(load.values) + 0.15)
+            ax.set_ylim(min(load.values) - max(load.values)*0.05, max(load.values)*1.15)
             ax.set_xlim(-2, num_genes)
             ax.set_xticks([])
             ax.set_title(f'Factor {factor_index}')
@@ -562,10 +564,10 @@ class FactorizationSet:
 
             fig.tight_layout()
             plt.show()
-            return fig
+            return fig, factors
 
         nrows = (rank // ncols) + 1
-        fig, axs = plt.subplots(nrows, ncols, figsize=(3.5 * ncols, 3.5 * nrows))
+        fig, axs = plt.subplots(nrows, ncols, figsize=(figsize[0] * ncols, figsize[1] * nrows))
 
         for ax, factor_index in zip(axs.flatten(), range(rank)):
             load = factors[factor_index].sort_values(ascending=False)
@@ -573,7 +575,7 @@ class FactorizationSet:
             ax.plot(load[:num_genes].values, '.', markersize=0)
             [ax.text(i, load[i], load.index[i], rotation='vertical', verticalalignment='bottom',
                      horizontalalignment='center', fontsize=fontsize) for i in range(num_genes)]
-            ax.set_ylim(min(load[:num_genes].values) - 0.05, max(load[:num_genes].values) + 0.15)
+            ax.set_ylim(min(load[:num_genes].values) - max(load[:num_genes].values)*0.05, max(load[:num_genes].values)*1.15)
             ax.set_xlim(-2, num_genes)
             ax.set_xticks([])
             ax.set_title(f'Factor {factor_index}')
@@ -585,7 +587,7 @@ class FactorizationSet:
         fig.tight_layout()
         [fig.delaxes(ax) for ax in axs.flatten()[rank:]]
         plt.show()
-        return fig
+        return fig, factors
 
     def save(self, path: str):
         with open(path, 'wb') as file:
@@ -641,7 +643,7 @@ class FactorizationSet:
         """
         I_minus_C = np.asarray(1 - consensus)
         upper_triangular_I_minus_C = I_minus_C[np.triu_indices(I_minus_C.shape[0], k=1)]
-        Y = scipy.cluster.hierarchy.linkage(upper_triangular_I_minus_C, method='average')
+        Y = fastcluster.linkage(upper_triangular_I_minus_C, method='average')
         cophenetic_dist = scipy.spatial.distance.squareform(scipy.cluster.hierarchy.cophenet(Y))
         upper_triangular_cophenetic_dist = cophenetic_dist[np.triu_indices(cophenetic_dist.shape[0], k=1)]
         return scipy.stats.pearsonr(upper_triangular_I_minus_C, upper_triangular_cophenetic_dist)[0]

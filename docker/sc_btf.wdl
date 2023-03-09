@@ -71,6 +71,7 @@ workflow scbtf_workflow {
 	call aggregate_factorization  {
 		input:
 			consensus_factorizations = scattered_factorize_rank.consensus_factorization,
+			full_factorizations = scattered_factorize_rank.full_factorization
 			output_directory = output_directory,
 
 			preemptible = preemptible,
@@ -248,7 +249,7 @@ task factorize_rank {
 	>>>
 
 	output {
-		File factorizations = "results/rank_~{rank}_factorization.pkl"
+		File full_factorization = "results/rank_~{rank}_factorization.pkl"
 		File consensus_factorization = "results/rank_~{rank}_consensus_factorization.pkl"
 	}
 
@@ -270,6 +271,7 @@ task aggregate_factorization {
 
 	input {
 		Array[File] consensus_factorizations
+		Array[File] full_factorizations
 		String output_directory
 
 		Int preemptible
@@ -290,24 +292,84 @@ task aggregate_factorization {
 		from scBTF import FactorizationSet
 
 		reconstructed_all = FactorizationSet()
-
 		for consensus_path in '~{sep="," consensus_factorizations}'.split(','):
 			reconstructed = FactorizationSet.load(consensus_path)
 			rank = list(reconstructed.get_ranks())[0]
 			reconstructed_all.factorizations[rank] = reconstructed.factorizations[rank]
-
 		reconstructed_all.sc_tensor = reconstructed.sc_tensor
-
 		reconstructed_all.save('results/consensus_factorization.pkl')
+
+		full_factorization_all = FactorizationSet()
+        for full_factorization_path in '~{sep="," full_factorizations}'.split(','):
+			full_factorization = FactorizationSet.load(full_factorization_path)
+			rank = list(full_factorization.get_ranks())[0]
+			full_factorization_all.factorizations[rank] = full_factorization.factorizations[rank]
+		full_factorization_all.sc_tensor = full_factorization.sc_tensor
+		full_factorization_all.save('results/full_factorization.pkl')
 
 		CODE
 
 		gsutil -m cp -r "results/" ~{output_directory}/
+
 	>>>
 
 	output {
 		File all_consensus_factorizations = 'results/consensus_factorization.pkl'
+		File all_full_factorizations = 'results/full_factorization.pkl'
 	}
+
+	runtime {
+		preemptible: preemptible
+		bootDiskSizeGb: 12
+		disks: "local-disk ${disk_space} HDD"
+		docker: "gcr.io/microbiome-xavier/${docker_version}"
+		cpu: num_cpu
+		zones: zones
+		memory: memory
+	}
+}
+
+task generate_summary {
+
+	input {
+		File consensus_factorization
+		File full_factorization
+		File adata_path
+		String output_directory
+
+		Int preemptible
+		Int disk_space
+		Int num_cpu
+		String memory
+		String docker_version
+		String zones
+	}
+
+	command <<<
+		set -e
+		mkdir -p results
+		source ~/.bashrc
+
+		python <<CODE
+
+		import os
+
+        ARGS = 'stub.py --adata_path {} --consensus_factorization_path {} --full_factorization_path {}'
+        CONFIG_FILENAME = '.config_ipynb'
+
+        with open(CONFIG_FILENAME, 'w') as f:
+            f.write(ARGS.format('~{adata_path}', '~{consensus_factorization}', '~{full_factorization}'))
+
+        with open('.script.sh', 'w') as f:
+            f.write('#!/bin/bash\n')
+            f.write('jupyter nbconvert --execute rank_determination_template.ipynb --output factor_analysis')
+        os.system('bash .script.sh')
+
+		CODE
+
+		gsutil -m cp 'factor_analysis.ipynb' '~{output_directory}/results/'
+
+	>>>
 
 	runtime {
 		preemptible: preemptible

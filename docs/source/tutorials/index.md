@@ -14,9 +14,11 @@ For questions about using scvi-tools, or broader questions about modeling data, 
 ```{toctree}
 :maxdepth: 1
 
+notebooks/rank_determination_template.ipynb
 notebooks/rank_determination.ipynb
 notebooks/factor_analysis.ipynb
 notebooks/ligand_receptor_analysis.ipynb
 notebooks/spatial_factor_analysis.ipynb
+notebooks/factor_analysis_template.ipynb
 
 ```
