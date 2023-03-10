@@ -41,7 +41,9 @@ class SingleCellTensor:
             adata: ad.AnnData,
             sample_label: str,
             celltype_label: str,
-            normalize: bool = False,
+            normalize: bool = True,
+            variance_scale: bool = True,
+            sqrt_transform: bool = True,
             scale_to: int = 1e6,
             cell_types: list[str] = None,
             enrich_db_genes_only: bool = False,
@@ -74,6 +76,14 @@ class SingleCellTensor:
         if normalize:
             row_sums = pseudobulk_matrix.sum(axis=1)
             pseudobulk_matrix = pseudobulk_matrix / row_sums[:, np.newaxis] * scale_to
+
+        if variance_scale:
+            std = pseudobulk_matrix.std()
+            std[std == 0] = 1
+            pseudobulk_matrix /= std
+
+        if sqrt_transform:
+            pseudobulk_matrix = pseudobulk_matrix.apply(np.sqrt)
 
         tensor_sample_list = sample_meta[sample_label].unique()
         tensor_celltype_list = sample_meta[celltype_label].unique()
@@ -133,7 +143,9 @@ class SingleCellTensor:
             sample_label: str,
             celltype_label: str,
             region_label: str,
-            normalize: bool = False,
+            normalize: bool = True,
+            variance_scale: bool = True,
+            sqrt_transform: bool = True,
             scale_to: int = 1e6,
             cell_types: list[str] = None,
             enrich_db_genes_only: bool = False,
@@ -166,6 +178,14 @@ class SingleCellTensor:
         if normalize:
             row_sums = pseudobulk_matrix.sum(axis=1)
             pseudobulk_matrix = pseudobulk_matrix / row_sums[:, np.newaxis] * scale_to
+
+        if variance_scale:
+            std = pseudobulk_matrix.std()
+            std[std == 0] = 1
+            pseudobulk_matrix /= std
+
+        if sqrt_transform:
+            pseudobulk_matrix = pseudobulk_matrix.apply(np.sqrt)
 
         tensor_sample_list = sample_meta[sample_label].unique()
         tensor_celltype_list = sample_meta[celltype_label].unique()

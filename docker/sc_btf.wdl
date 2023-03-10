@@ -14,6 +14,8 @@ workflow scbtf_workflow {
 		Int filter_gene_count = 50
 		Boolean hgnc_approved_genes_only = true
 		Boolean normalize = true
+		Boolean variance_scale = true
+		Boolean sqrt_transform = true
 		String model = "gamma_poisson"
 		Int num_steps = 1500
 		Float initial_lr = 1.0
@@ -37,6 +39,8 @@ workflow scbtf_workflow {
 			filter_gene_count = filter_gene_count,
 			hgnc_approved_genes_only = hgnc_approved_genes_only,
 			normalize = normalize,
+			variance_scale = variance_scale,
+			sqrt_transform = sqrt_transform,
 
 			preemptible = preemptible,
 			disk_space = disk_space,
@@ -99,6 +103,8 @@ task tensorize {
 		Int filter_gene_count
 		Boolean hgnc_approved_genes_only
 		Boolean normalize
+		Boolean variance_scale
+		Boolean sqrt_transform
 
 		Int preemptible
 		Int disk_space
@@ -124,14 +130,12 @@ task tensorize {
 		print(adata.shape)
 
 		sc_tensor = SingleCellTensor.from_anndata(
-			adata, sample_label='~{sample_label}',
-			celltype_label='~{celltype_label}',
-			scale_to=~{scale_to}, normalize=('~{normalize}'=='true'),
-			hgnc_approved_genes_only=('~{hgnc_approved_genes_only}'=='true'),
+			adata, sample_label='~{sample_label}', celltype_label='~{celltype_label}', scale_to=~{scale_to},
+			normalize=('~{normalize}'=='true'), variance_scale=('~{variance_scale}'=='true'),
+			sqrt_transform=('~{sqrt_transform}'=='true'), hgnc_approved_genes_only=('~{hgnc_approved_genes_only}'=='true'),
 			filter_gene_count=~{filter_gene_count}
 		)
 
-		sc_tensor.tensor = sc_tensor.tensor.round()
 		with open('results/tensor.pkl', 'wb') as file:
 			pickle.dump(sc_tensor, file)
 		print("Saved tensor of shape : ", sc_tensor.tensor.shape)
@@ -196,6 +200,7 @@ task factorize_rank {
 		print("Loaded tensor of shape : ", sc_tensor.tensor.shape)
 
 		if '~{method}' == "BTF":
+    		sc_tensor.tensor = (sc_tensor.tensor*1e5/sc_tensor.tensor.max()).round()
 			factorization_set = SingleCellBTF.factorize(
 				sc_tensor=sc_tensor,
 				rank=~{rank},

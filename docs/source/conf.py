@@ -24,7 +24,7 @@ copyright = '2023, Broad Institute'
 author = 'Daniel Chafamo'
 
 # The full version, including alpha/beta/rc tags
-release = '0.1.1'
+release = '0.1.5'
 
 
 # -- General configuration ---------------------------------------------
@@ -50,6 +50,8 @@ extensions = [
 ]
 
 # nbsphinx specific settings
+source_suffix = [".rst", ".md"]
+
 exclude_patterns = ['_build', '**.ipynb_checkpoints']
 nbsphinx_execute = "never"
 

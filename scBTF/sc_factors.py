@@ -198,15 +198,13 @@ class FactorizationSet:
         self.consensus_plot(1 - C, size=size)
         plt.show()
 
-    def plot_gene_across_components(self, rank: int, gene: str, restart_index: int):
+    def plot_gene_across_components(self, rank: int, gene: str, restart_index: int, figsize=(6, 4), color='k'):
         """ Plot mean and high density region of the loadings of a given gene across the factors """
-        color = (0.9058823529411765, 0.5411764705882353, 0.7647058823529411)
-
         gene_index = self.sc_tensor.gene_list.index(gene)
         factorization = self.get_factorization(rank, restart_index)
         gene_factors = factorization.gene_factor['mean']
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax = sns.scatterplot(x=torch.arange(gene_factors.shape[1]), y=gene_factors[gene_index, :], s=60, color=color,
+        fig, ax = plt.subplots(figsize=figsize)
+        ax = sns.scatterplot(x=torch.arange(gene_factors.shape[1]), y=gene_factors[gene_index, :], s=50, color=color,
                              ax=ax)
         ax.set(xlabel="Component", ylabel="Loading", title=gene)
         ax.vlines(torch.arange(gene_factors.shape[1]),
@@ -375,7 +373,7 @@ class FactorizationSet:
             for i in range(min(len(program), 20)):
                 labeled_factors.loc[len(labeled_factors.index)] = ['gene', '.', str(factor), i, program[i]]
             if plot_erichment_terms:
-                enr = gp.enrichr(gene_list=program, gene_sets=enrich_dbs, organism='human', outdir=None)
+                enr = gp.enrichr(gene_list=program, gene_sets=enrich_dbs, organism='human', background=self.sc_tensor.gene_list, outdir=None)
                 top_terms = '\n '.join(enr.results['Term'][:3])
                 labeled_factors.loc[len(labeled_factors.index)] = ['gene set enrichment', '.', str(factor), 0,
                                                                    top_terms]
@@ -401,8 +399,9 @@ class FactorizationSet:
         dH = pd.DataFrame(factorization.sample_factor['mean'])
         dH = pd.concat([dH.reset_index(drop=True), self.sc_tensor.sample_features.reset_index(drop=True)], axis=1)
         dH.columns = dH.columns.map(str)
+        # dH['index'] = list(range(dH.shape[0]))
+        dH['index'] = self.sc_tensor.sample_list
         dH = dH.sort_values(by=grouping_column)
-        dH['index'] = list(range(dH.shape[0]))
         if melt:
             dH = dH.melt(id_vars=self.sc_tensor.sample_features.columns.tolist() + ['index'], var_name='factor',
                          value_name='value')
@@ -537,9 +536,7 @@ class FactorizationSet:
             mat2 = np.tile(HEG[str(restart)].values.reshape((-1, 1)), (1, HEG.shape[0]))
             conn = np.mat(mat1 == mat2, dtype='d')
             cons += conn
-        res2 = np.divide(cons, len(restarts))
-
-        return res2
+        return np.divide(cons, len(restarts))
 
     def gene_factor_elbow_plots(self, rank, restart_index, factor_index=None, ncols=5, num_genes=20, fontsize=9,
                                 normalize=True, figsize=(3.5, 3.5)):
@@ -706,3 +703,93 @@ class FactorizationSet:
                 clean_axis(catAX)
 
         return Y
+
+    @staticmethod
+    def case_control(adata, gene, celltype, iv, case, donor_label, celltype_label, ax):
+        obs_pb = adata.obs.copy()
+
+        obs_pb[gene] = adata.raw.X[:, adata.var_names.to_list().index(gene)].toarray().squeeze()
+        obs_pb['case_control'] = 'other'
+        obs_pb.loc[obs_pb.loc[obs_pb[celltype_label] == celltype].loc[
+                       obs_pb[iv] == case].index, 'case_control'] = celltype + "_" + case
+        df = obs_pb.groupby(by=[donor_label, 'case_control']).agg({gene: 'mean'}).reset_index()
+        x = 'case_control'
+        y = gene
+
+        ax = sns.swarmplot(data=df, x=x, y=y, palette='Set2', size=5, color="1", edgecolor='black', linewidth=1, ax=ax)
+
+        ax = sns.boxplot(data=df, x=x, y=y, width=0.5, showcaps=False, boxprops={"edgecolor": 'black', "linewidth": 1},
+                         flierprops={"marker": "."}, palette='Set2', hue=x, dodge=False, ax=ax)
+
+        ax.get_legend().remove()
+        ax.set_title(f'{y}')
+        ax.set_xlabel('')
+        ax.set_ylabel('Mean Raw Expression')
+        ax.tick_params(axis='x', labelrotation=90)
+
+        annotator = Annotator(ax, data=df, pairs=[(celltype + "_" + case, "other")], x=x, y=y)
+        annotator.configure(test='Mann-Whitney', text_format='star')
+        annotator.apply_and_annotate()
+
+    @staticmethod
+    def case_control_1v1(adata, gene, celltype, iv, donor_label, celltype_label, ax, title=None, xlab=None,
+                         annot=False):
+        obs_pb = adata.obs.copy()
+        obs_pb[gene] = adata.raw.X[:, adata.var_names.to_list().index(gene)].toarray().squeeze()
+        df = obs_pb[obs_pb[celltype_label] == celltype].sort_values(by=iv)
+        df = df.groupby(by=[donor_label, celltype_label]).agg({gene: 'mean', iv: 'first'}).reset_index()
+        x, y = iv, gene
+        ax = sns.swarmplot(data=df, x=x, y=y, palette='Set2', size=5, color="1", edgecolor='black', linewidth=1, ax=ax)
+        ax = sns.boxplot(data=df, x=x, y=y, width=0.5, showcaps=False, boxprops={"edgecolor": 'black', "linewidth": 1},
+                         flierprops={"marker": "."}, palette='Set2', hue=x, dodge=False, ax=ax)
+        ax.get_legend().remove()
+        ax.set_title(f'       {y}   in   {celltype}' if title is None else title)
+        ax.set_xlabel('')
+        ax.set_ylabel('Mean Raw Expression' if xlab is None else xlab)
+        if annot:
+            annotator = Annotator(ax, data=df, pairs=[("HL", "RLN")], x=x, y=y)
+            annotator.configure(test='Mann-Whitney', text_format='star')
+            annotator.apply_and_annotate()
+
+    @staticmethod
+    def gene_box_plot(adata, gene, celltype, iv='condition', donor_label='donor', celltype_label='cell_types_level_3',
+                      ptype='point'):
+        obs_pb = adata.obs.copy()
+        obs_pb[gene] = adata.X[:, adata.var_names.to_list().index(gene)].toarray().squeeze()
+        df = obs_pb[obs_pb[celltype_label] == celltype].sort_values(by=iv)
+        df[donor_label] = df[donor_label].astype(str)
+
+        x, y = iv, gene
+        fig, axs = plt.subplots(1, 2, figsize=(6, 4), gridspec_kw={'width_ratios': [2, 1]}, sharey=True)
+
+        if ptype == 'box':
+            sns.boxplot(data=df[df[iv] == np.unique(df[iv])[0]], x=donor_label, y=y, notch=True, width=0.5,
+                        showcaps=False,
+                        boxprops={"facecolor": sns.color_palette("Set2")[0]}, flierprops={"marker": "."}, dodge=False,
+                        ax=axs[0])
+            sns.boxplot(data=df[df[iv] == np.unique(df[iv])[1]], x=donor_label, y=y, notch=True, width=0.5,
+                        showcaps=False,
+                        boxprops={"facecolor": sns.color_palette("Set2")[1]}, flierprops={"marker": "."}, dodge=False,
+                        ax=axs[1])
+        elif ptype == 'point':
+            sns.pointplot(data=df[df[iv] == np.unique(df[iv])[0]], x=donor_label, y=y, ax=axs[0],
+                          color=sns.color_palette("Set2")[0], join=False,
+                          estimator=np.mean, errorbar='sd', markers='.', scale=1.2, errwidth=2)
+            sns.pointplot(data=df[df[iv] == np.unique(df[iv])[1]], x=donor_label, y=y, ax=axs[1],
+                          color=sns.color_palette("Set2")[1], join=False,
+                          estimator=np.mean, errorbar='sd', markers='.', scale=1.2, errwidth=2)
+
+        plt.subplots_adjust(wspace=0.07)
+
+        axs[0].set_xlim(-1.2, 10.2)
+        axs[1].set_xlim(-1.2, 5.2)
+
+        axs[0].tick_params(axis='x', labelrotation=90)
+        axs[1].tick_params(axis='x', labelrotation=90)
+
+        axs[0].set_title(' Hodgkin Lymphoma donors ')
+        axs[1].set_title(' Healthy donors ')
+
+        axs[1].get_yaxis().set_visible(False)
+
+        plt.show()
