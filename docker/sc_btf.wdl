@@ -75,7 +75,7 @@ workflow scbtf_workflow {
 	call aggregate_factorization  {
 		input:
 			consensus_factorizations = scattered_factorize_rank.consensus_factorization,
-			full_factorizations = scattered_factorize_rank.full_factorization
+			full_factorizations = scattered_factorize_rank.full_factorization,
 			output_directory = output_directory,
 
 			preemptible = preemptible,
@@ -200,7 +200,7 @@ task factorize_rank {
 		print("Loaded tensor of shape : ", sc_tensor.tensor.shape)
 
 		if '~{method}' == "BTF":
-    		sc_tensor.tensor = (sc_tensor.tensor*1e5/sc_tensor.tensor.max()).round()
+			sc_tensor.tensor = (sc_tensor.tensor*1e5/sc_tensor.tensor.max()).round()
 			factorization_set = SingleCellBTF.factorize(
 				sc_tensor=sc_tensor,
 				rank=~{rank},
@@ -226,6 +226,7 @@ task factorize_rank {
 
 		reconstructed_all = FactorizationSet()
 		reconstructed_all.sc_tensor = factorization_set.sc_tensor
+		reconstructed_all.sc_tensor.tensor = (reconstructed_all.sc_tensor.tensor*1e5/reconstructed_all.sc_tensor.tensor.max()).round()
 
 		for selected_rank in factorization_set.get_ranks():
 			# Use median of clustered gene factors to reconstruct a final factorization
@@ -305,7 +306,7 @@ task aggregate_factorization {
 		reconstructed_all.save('results/consensus_factorization.pkl')
 
 		full_factorization_all = FactorizationSet()
-        for full_factorization_path in '~{sep="," full_factorizations}'.split(','):
+		for full_factorization_path in '~{sep="," full_factorizations}'.split(','):
 			full_factorization = FactorizationSet.load(full_factorization_path)
 			rank = list(full_factorization.get_ranks())[0]
 			full_factorization_all.factorizations[rank] = full_factorization.factorizations[rank]
@@ -359,16 +360,16 @@ task generate_summary {
 
 		import os
 
-        ARGS = 'stub.py --adata_path {} --consensus_factorization_path {} --full_factorization_path {}'
-        CONFIG_FILENAME = '.config_ipynb'
+		ARGS = 'stub.py --adata_path {} --consensus_factorization_path {} --full_factorization_path {}'
+		CONFIG_FILENAME = '.config_ipynb'
 
-        with open(CONFIG_FILENAME, 'w') as f:
-            f.write(ARGS.format('~{adata_path}', '~{consensus_factorization}', '~{full_factorization}'))
+		with open(CONFIG_FILENAME, 'w') as f:
+			f.write(ARGS.format('~{adata_path}', '~{consensus_factorization}', '~{full_factorization}'))
 
-        with open('.script.sh', 'w') as f:
-            f.write('#!/bin/bash\n')
-            f.write('jupyter nbconvert --execute rank_determination_template.ipynb --output factor_analysis')
-        os.system('bash .script.sh')
+		with open('.script.sh', 'w') as f:
+			f.write('#!/bin/bash\n')
+			f.write('jupyter nbconvert --execute rank_determination_template.ipynb --output factor_analysis')
+		os.system('bash .script.sh')
 
 		CODE
 

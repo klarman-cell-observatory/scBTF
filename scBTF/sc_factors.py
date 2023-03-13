@@ -290,7 +290,9 @@ class FactorizationSet:
 
         for rank in self.get_ranks():
             data = np.column_stack([f.gene_factor['mean'].numpy() for f in self.factorizations[rank].values()]).T
-            data_normed = (data.T / data.T.sum(axis=0)).T * 1e5
+            sums = data.T.sum(axis=0)
+            sums[sums == 0] = 1
+            data_normed = (data.T / sums).T * 1e5
 
             cluster_metrics = pd.DataFrame(columns=['n_clusters', 'inertia', 'silhouette_score'])
             for n_clusters in self.get_ranks():
@@ -324,7 +326,9 @@ class FactorizationSet:
         if n_clusters is None:
             n_clusters = rank
         data = np.column_stack([f.gene_factor['mean'].numpy() for f in self.factorizations[rank].values()]).T
-        data_normed = (data.T / data.T.sum(axis=0)).T * 1e5
+        sums = data.T.sum(axis=0)
+        sums[sums == 0] = 1
+        data_normed = (data.T / sums).T * 1e5
         kmeans = KMeans(init="k-means++", n_clusters=n_clusters, n_init=20, tol=1e-8)
         labels_ = make_pipeline(StandardScaler(), kmeans).fit(data_normed)[-1].labels_
 

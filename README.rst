@@ -25,4 +25,10 @@ Single Cell Bayesian Tensor Factorization
 
 Pegasus is a tool for analyzing transcriptomes of millions of single cells. It is a command line tool, a python package and a base for Cloud-based analysis workflows.
 
+conda create --name scbtf_env python=3.9 -y
+conda activate scbtf_env
+
+pip install -U adpbulk gseapy rich statannotations scanpy fastcluster torch
+pip install --index-url https://test.pypi.org/simple/ scbtf==0.1.7
+
 `Read documentation <http://pegasus.readthedocs.io>`__
