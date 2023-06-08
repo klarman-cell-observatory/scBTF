@@ -10,7 +10,7 @@ with open(path.join(here, "README.rst"), encoding="utf-8") as f:
 
 setup(
     name="scBTF",
-    version='0.1.8',
+    version='0.1.20',
     description="scBTF is a Python package for Bayesian Tensor Factorization of single cell RNA-seq data",
     long_description=long_description,
     url="https://github.com/dan-broad/scBTF",
@@ -41,6 +41,6 @@ setup(
     ],
     python_requires="~=3.7",
     package_data={
-        "scBTF": ["resources/gene_sets/hgnc_complete_set_2020-07-01.txt"],
+        "scBTF": ["resources/gene_sets/hgnc_complete_set_2020-07-01.txt", "resources/liana_consensus_LR.csv"],
     }
 )
