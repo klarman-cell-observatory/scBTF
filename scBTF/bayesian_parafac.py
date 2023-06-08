@@ -10,7 +10,6 @@ from pyro.infer import SVI, Trace_ELBO, Predictive, TraceMeanField_ELBO
 import pyro.distributions as dist
 from pyro.infer.autoguide import AutoNormal, AutoMultivariateNormal, AutoDelta, AutoDiagonalNormal, init_to_feasible
 
-# assert pyro.__version__.startswith('1.8.2')
 pyro.enable_validation(True)
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -65,9 +64,11 @@ class BayesianCP(nn.Module):
             rank,
             init_alpha=10.,
             init_beta=1.,
+            fixed_mode_variance=10.,
             model: str = 'gamma_poisson',
             fixed_mode: int = None,
-            fixed_value=None
+            fixed_value=None,
+            init_gate_loc: float = 1.0
     ):
         super().__init__()
 
@@ -78,6 +79,8 @@ class BayesianCP(nn.Module):
 
         self.fixed_mode = fixed_mode
         self.fixed_value = fixed_value
+        self.fixed_mode_variance = fixed_mode_variance
+        self.init_gate_loc = init_gate_loc
 
         models = {
             'gamma_poisson': [self.model_gamma_poisson, self.guide_gamma_poisson],
@@ -94,6 +97,7 @@ class BayesianCP(nn.Module):
                                                                                           init_loc_fn=init_to_feasible)],
             'truncated_gaussian': [self.model_truncated_gaussian, self.guide_truncated_gaussian],
             'zero_inflated_poisson': [self.model_zero_inflated_poisson, self.guide_zero_inflated_poisson],
+            'zero_inflated_poisson_fixed': [self.model_zero_inflated_poisson, self.guide_zero_inflated_poisson_fixed],
             'zero_inflated_poisson_auto': [self.model_zero_inflated_poisson,
                                            AutoDiagonalNormal(self.model_zero_inflated_poisson,
                                                               init_loc_fn=init_to_feasible)]
@@ -143,8 +147,9 @@ class BayesianCP(nn.Module):
                 q_alpha = pyro.param(f"Q{mode}_alpha", init_alpha, constraint=constraints.greater_than(1e-5))
                 q_beta = pyro.param(f"Q{mode}_beta", init_beta, constraint=constraints.positive)
             else:
-                q_alpha = self.fixed_value + 1e-10
-                q_beta = torch.ones([self.dims[mode], self.rank])
+                var = 1 / self.fixed_mode_variance
+                q_alpha = self.fixed_value / var + 1e-10
+                q_beta = torch.ones([self.dims[mode], self.rank]) / var
 
             pyro.sample(f"factor_{mode}", pyro.distributions.Gamma(q_alpha, q_beta).to_event())
 
@@ -158,12 +163,25 @@ class BayesianCP(nn.Module):
 
             pyro.sample(f"factor_{mode}", pyro.distributions.Gamma(q_alpha, q_beta).to_event())
 
-        init_loc = torch.zeros_like(data)
-        init_scale = torch.ones_like(data) * 4.
+        gate_loc = pyro.param(f"Q_gate_loc", torch.ones_like(data) * 1)
+        pyro.sample("gate", pyro.distributions.Normal(gate_loc, 2.).to_event())
 
-        gate_loc = pyro.param(f"Q_gate_loc", init_loc)
-        gate_scale = pyro.param(f"Q_gate_scale", init_scale, constraint=constraints.greater_than(1e-5))
-        pyro.sample("gate", pyro.distributions.Normal(gate_loc, gate_scale).to_event())
+    def guide_zero_inflated_poisson_fixed(self, data):
+        for mode in range(len(self.dims)):
+            if mode != self.fixed_mode:
+                init_alpha = torch.ones([self.dims[mode], self.rank]) * self.init_alpha[mode]
+                init_beta = torch.ones([self.dims[mode], self.rank]) * self.init_beta[mode]
+
+                q_alpha = pyro.param(f"Q{mode}_alpha", init_alpha, constraint=constraints.greater_than(1e-5))
+                q_beta = pyro.param(f"Q{mode}_beta", init_beta, constraint=constraints.positive)
+            else:
+                var = 1 / self.fixed_mode_variance
+                q_alpha = self.fixed_value / var + 1e-10
+                q_beta = torch.ones([self.dims[mode], self.rank]) / var
+
+            pyro.sample(f"factor_{mode}", pyro.distributions.Gamma(q_alpha, q_beta).to_event())
+        gate_loc = pyro.param(f"Q_gate_loc", torch.ones_like(data) * self.init_gate_loc)
+        pyro.sample("gate", pyro.distributions.Normal(gate_loc, 2.).to_event())
 
     def model_truncated_gaussian(self, data):
         factor = []
@@ -175,7 +193,7 @@ class BayesianCP(nn.Module):
         loc = torch.einsum(BayesianCP.get_einsum_formula(len(self.dims)), *factor)
         sigma = pyro.sample("sigma",
                             pyro.distributions.LogNormal(torch.zeros_like(loc), torch.ones_like(loc)).to_event())
-        pyro.sample("obs", pyro.distributions.Normal(loc, sigma).to_event(), obs=data)
+        pyro.sample("obs", dist.FoldedDistribution(pyro.distributions.Normal(loc, sigma)).to_event(), obs=data+1e-10)
 
     def guide_truncated_gaussian(self, data):
         for mode in range(len(self.dims)):
@@ -241,6 +259,7 @@ class BayesianCP(nn.Module):
         einsum_formula = {
             2: 'ir,jr->ij',
             3: 'ir,jr,kr->ijk',
-            4: 'ir,jr,kr,lr->ijkl'
+            4: 'ir,jr,kr,lr->ijkl',
+            5: 'ir,jr,kr,lr,mr->ijklm'
         }
         return einsum_formula[num_modes]
